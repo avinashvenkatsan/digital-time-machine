@@ -5,27 +5,26 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Frontend production build directory
 const distPath = path.join(__dirname, '..', 'dist');
 
 app.disable('x-powered-by');
 
-// In-memory cache
+// Cache settings
 const cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 200;
 const REQUEST_TIMEOUT = 60000;
 
-// Health check
-app.get('/api/health', (_req, res) => {
+// API health check
+app.get('/api/health', function (_req, res) {
   res.json({
     status: 'ok',
     service: 'Digital Time Machine API',
   });
 });
 
-// Search archived website snapshots
-app.get('/api/snapshots', async (req, res) => {
+// Search Internet Archive snapshots
+app.get('/api/snapshots', async function (req, res) {
   const rawUrl = String(req.query.url || '').trim();
 
   if (!rawUrl || rawUrl.length > 2048) {
@@ -36,13 +35,13 @@ app.get('/api/snapshots', async (req, res) => {
 
   let hostname;
 
-  // Validate the requested website
+  // Validate the submitted website
   try {
-    const parsed = new URL(
-      /^https?:\/\//i.test(rawUrl)
-        ? rawUrl
-        : `https://${rawUrl}`
-    );
+    const normalizedUrl = /^https?:\/\//i.test(rawUrl)
+      ? rawUrl
+      : 'https://' + rawUrl;
+
+    const parsed = new URL(normalizedUrl);
 
     if (
       !['http:', 'https:'].includes(parsed.protocol) ||
@@ -67,13 +66,13 @@ app.get('/api/snapshots', async (req, res) => {
     ) {
       throw new Error('Invalid public domain');
     }
-  } catch {
+  } catch (_error) {
     return res.status(400).json({
       error: 'Enter a valid public website, such as google.com.',
     });
   }
 
-  // Return cached results when available
+  // Check cache
   const cached = cache.get(hostname);
 
   if (cached && Date.now() - cached.time < CACHE_TTL) {
@@ -84,24 +83,24 @@ app.get('/api/snapshots', async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    // Build Internet Archive CDX API request
-    const params = new URLSearchParams({
-      url: hostname,
-      output: 'json',
-      fl: 'timestamp,original,statuscode',
-      filter: 'statuscode:200',
-      collapse: 'timestamp:4',
-      from: '1990',
-      to: String(new Date().getUTCFullYear()),
-      limit: '50',
-    });
+    // Build the Internet Archive CDX API URL
+    const params = new URLSearchParams();
+
+    params.set('url', hostname);
+    params.set('output', 'json');
+    params.set('fl', 'timestamp,original,statuscode');
+    params.set('filter', 'statuscode:200');
+    params.set('collapse', 'timestamp:4');
+    params.set('from', '1990');
+    params.set('to', String(new Date().getUTCFullYear()));
+    params.set('limit', '50');
 
     const archiveUrl =
-      `https://web.archive.org/cdx/search/cdx?${params.toString()}`;
+      'https://web.archive.org/cdx/search/cdx?' +
+      params.toString();
 
-    console.log(`[Snapshots] Searching: ${hostname}`);
+    console.log('[Snapshots] Searching: ' + hostname);
 
-    // Contact Internet Archive
     const response = await fetch(archiveUrl, {
       headers: {
         Accept: 'application/json',
@@ -111,12 +110,13 @@ app.get('/api/snapshots', async (req, res) => {
     });
 
     console.log(
-      `[Snapshots] HTTP ${response.status}; elapsed ${
-        Date.now() - startedAt
-      }ms`
+      '[Snapshots] HTTP ' +
+        response.status +
+        '; elapsed ' +
+        (Date.now() - startedAt) +
+        'ms'
     );
 
-    // Handle unsuccessful HTTP responses
     if (!response.ok) {
       if (response.status === 429) {
         return res.status(503).json({
@@ -127,11 +127,10 @@ app.get('/api/snapshots', async (req, res) => {
 
       return res.status(502).json({
         error:
-          `Internet Archive returned HTTP ${response.status}.`,
+          'Internet Archive returned HTTP ' + response.status + '.',
       });
     }
 
-    // Parse the API response
     const data = await response.json();
 
     if (!Array.isArray(data)) {
@@ -140,21 +139,20 @@ app.get('/api/snapshots', async (req, res) => {
       });
     }
 
-    // CDX JSON normally starts with a header row
+    // CDX JSON contains a header row followed by snapshot rows
     if (data.length <= 1) {
       return res.status(404).json({
-        error:
-          'No archived snapshots were found for this website.',
+        error: 'No archived snapshots were found for this website.',
       });
     }
 
-    // Cache successful results
+    // Save successful response in cache
     cache.set(hostname, {
       time: Date.now(),
-      data,
+      data: data,
     });
 
-    // Keep cache size bounded
+    // Keep the cache bounded
     if (cache.size > MAX_CACHE_ENTRIES) {
       const oldestKey = cache.keys().next().value;
 
@@ -167,7 +165,7 @@ app.get('/api/snapshots', async (req, res) => {
     return res.json(data);
   } catch (error) {
     console.error('[Snapshots] Request failed:', {
-      hostname,
+      hostname: hostname,
       name: error.name,
       message: error.message,
       elapsedMs: Date.now() - startedAt,
@@ -177,4 +175,57 @@ app.get('/api/snapshots', async (req, res) => {
       error.name === 'TimeoutError' ||
       error.name === 'AbortError'
     ) {
-      return
+      return res.status(504).json({
+        error:
+          'Internet Archive took too long to respond. Please try again.',
+      });
+    }
+
+    return res.status(502).json({
+      error:
+        'Could not connect to the Internet Archive. Check server logs for details.',
+    });
+  }
+});
+
+// Serve the frontend build
+app.use(express.static(distPath));
+
+// Handle frontend routes and unknown API routes
+app.use(function (req, res, next) {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({
+      error: 'API endpoint not found.',
+    });
+  }
+
+  res.sendFile(
+    path.join(distPath, 'index.html'),
+    function (error) {
+      if (error) {
+        next(error);
+      }
+    }
+  );
+});
+
+// Global error handler
+app.use(function (error, _req, res, _next) {
+  console.error('[Server] Error:', error);
+
+  if (res.headersSent) {
+    return;
+  }
+
+  res.status(500).json({
+    error: 'An unexpected server error occurred.',
+  });
+});
+
+// Start the server
+app.listen(PORT, '0.0.0.0', function () {
+  console.log(
+    'Digital Time Machine running on port ' + PORT
+  );
+});
+```
