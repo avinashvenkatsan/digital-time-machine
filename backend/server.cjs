@@ -1,18 +1,20 @@
-
+```javascript
 const express = require('express');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// server.cjs is inside /backend, while dist is in the project root.
+// Frontend production build directory
 const distPath = path.join(__dirname, '..', 'dist');
 
 app.disable('x-powered-by');
 
+// In-memory cache
 const cache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 200;
+const REQUEST_TIMEOUT = 60000;
 
 // Health check
 app.get('/api/health', (_req, res) => {
@@ -22,7 +24,7 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// Find archived website snapshots
+// Search archived website snapshots
 app.get('/api/snapshots', async (req, res) => {
   const rawUrl = String(req.query.url || '').trim();
 
@@ -34,6 +36,7 @@ app.get('/api/snapshots', async (req, res) => {
 
   let hostname;
 
+  // Validate the requested website
   try {
     const parsed = new URL(
       /^https?:\/\//i.test(rawUrl)
@@ -51,7 +54,6 @@ app.get('/api/snapshots', async (req, res) => {
 
     hostname = parsed.hostname.toLowerCase();
 
-    // Accept public DNS hostnames only.
     if (
       !hostname.includes('.') ||
       !/^[a-z0-9.-]+$/.test(hostname) ||
@@ -71,7 +73,7 @@ app.get('/api/snapshots', async (req, res) => {
     });
   }
 
-  // Return cached results when available.
+  // Return cached results when available
   const cached = cache.get(hostname);
 
   if (cached && Date.now() - cached.time < CACHE_TTL) {
@@ -79,58 +81,66 @@ app.get('/api/snapshots', async (req, res) => {
     return res.json(cached.data);
   }
 
+  const startedAt = Date.now();
+
   try {
+    // Build Internet Archive CDX API request
     const params = new URLSearchParams({
-      url: `${hostname}/*`,
+      url: hostname,
       output: 'json',
       fl: 'timestamp,original,statuscode',
       filter: 'statuscode:200',
       collapse: 'timestamp:4',
       from: '1990',
       to: String(new Date().getUTCFullYear()),
-      limit: '100',
+      limit: '50',
     });
 
     const archiveUrl =
       `https://web.archive.org/cdx/search/cdx?${params.toString()}`;
 
+    console.log(`[Snapshots] Searching: ${hostname}`);
+
+    // Contact Internet Archive
     const response = await fetch(archiveUrl, {
       headers: {
         Accept: 'application/json',
         'User-Agent': 'DigitalTimeMachine/1.0',
       },
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT),
     });
 
-    if (!response.ok) {
-      console.error(
-        'Internet Archive HTTP status:',
-        response.status
-      );
+    console.log(
+      `[Snapshots] HTTP ${response.status}; elapsed ${
+        Date.now() - startedAt
+      }ms`
+    );
 
+    // Handle unsuccessful HTTP responses
+    if (!response.ok) {
       if (response.status === 429) {
         return res.status(503).json({
           error:
-            'The Internet Archive is temporarily limiting requests. Please wait and try again.',
+            'The Internet Archive is rate-limiting requests. Please try again later.',
         });
       }
 
       return res.status(502).json({
         error:
-          `The Internet Archive returned HTTP ${response.status}. Please try again later.`,
+          `Internet Archive returned HTTP ${response.status}.`,
       });
     }
 
+    // Parse the API response
     const data = await response.json();
 
     if (!Array.isArray(data)) {
       return res.status(502).json({
-        error:
-          'The Internet Archive returned an unexpected response.',
+        error: 'Internet Archive returned an unexpected response.',
       });
     }
 
-    // CDX JSON normally contains a header row followed by records.
+    // CDX JSON normally starts with a header row
     if (data.length <= 1) {
       return res.status(404).json({
         error:
@@ -138,12 +148,13 @@ app.get('/api/snapshots', async (req, res) => {
       });
     }
 
+    // Cache successful results
     cache.set(hostname, {
       time: Date.now(),
       data,
     });
 
-    // Keep the in-memory cache bounded.
+    // Keep cache size bounded
     if (cache.size > MAX_CACHE_ENTRIES) {
       const oldestKey = cache.keys().next().value;
 
@@ -155,47 +166,15 @@ app.get('/api/snapshots', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=300');
     return res.json(data);
   } catch (error) {
-    console.error('Snapshot request failed:', error);
-
-    return res.status(502).json({
-      error:
-        'Could not contact the Internet Archive. Please try again later.',
+    console.error('[Snapshots] Request failed:', {
+      hostname,
+      name: error.name,
+      message: error.message,
+      elapsedMs: Date.now() - startedAt,
     });
-  }
-});
 
-// Serve the built React frontend.
-app.use(express.static(distPath));
-
-// Express 5-compatible fallback for frontend routes.
-app.use((req, res, next) => {
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({
-      error: 'API endpoint not found.',
-    });
-  }
-
-  res.sendFile(
-    path.join(distPath, 'index.html'),
-    (error) => {
-      if (error) next(error);
-    }
-  );
-});
-
-// Final error handler.
-app.use((error, _req, res, _next) => {
-  console.error('Server error:', error);
-
-  if (res.headersSent) return;
-
-  res.status(500).json({
-    error: 'An unexpected server error occurred.',
-  });
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(
-    `Digital Time Machine running on port ${PORT}`
-  );
-});
+    if (
+      error.name === 'TimeoutError' ||
+      error.name === 'AbortError'
+    ) {
+      return
