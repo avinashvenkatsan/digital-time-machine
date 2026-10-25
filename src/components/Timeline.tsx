@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpToLine, CalendarDays, ExternalLink } from 'lucide-react'
 import type { Snapshot } from '../types'
 import { archiveUrl } from '../services/waybackService'
