@@ -228,4 +228,3 @@ app.listen(PORT, '0.0.0.0', function () {
     'Digital Time Machine running on port ' + PORT
   );
 });
-```
