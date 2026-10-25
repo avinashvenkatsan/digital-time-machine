@@ -1,15 +1,15 @@
 
 import { useState } from 'react';
 import {
-  ArrowUpRight,
+  ArrowDown,
+  ArrowRight,
+  Calendar,
   Clock3,
-  Globe,
-  History,
-  Search,
   ExternalLink,
-  CalendarDays,
+  Globe2,
+  History,
   LoaderCircle,
-  RotateCcw,
+  Search,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
@@ -21,99 +21,56 @@ type Snapshot = {
   statuscode: string;
 };
 
-type Website = {
-  name: string;
-  url: string;
-  category: string;
-  description: string;
-  year: string;
-};
-
-const websites: Website[] = [
-  {
-    name: 'Google',
-    url: 'https://www.google.com',
-    category: 'Technology',
-    description: 'Explore the evolution of the world’s most popular search engine.',
-    year: '1998',
-  },
-  {
-    name: 'YouTube',
-    url: 'https://www.youtube.com',
-    category: 'Entertainment',
-    description: 'Travel back through the history of online video.',
-    year: '2005',
-  },
-  {
-    name: 'Wikipedia',
-    url: 'https://www.wikipedia.org',
-    category: 'Education',
-    description: 'Discover how the free encyclopedia has changed over time.',
-    year: '2001',
-  },
-  {
-    name: 'Amazon',
-    url: 'https://www.amazon.com',
-    category: 'Shopping',
-    description: 'See the transformation from online bookstore to global marketplace.',
-    year: '1995',
-  },
-  {
-    name: 'Apple',
-    url: 'https://www.apple.com',
-    category: 'Technology',
-    description: 'Explore decades of Apple product launches and design.',
-    year: '1996',
-  },
-  {
-    name: 'NASA',
-    url: 'https://www.nasa.gov',
-    category: 'Science',
-    description: 'Journey through the online history of space exploration.',
-    year: '1994',
-  },
+const popularSites = [
+  { name: 'Google', url: 'google.com', symbol: 'G' },
+  { name: 'YouTube', url: 'youtube.com', symbol: '▶' },
+  { name: 'Wikipedia', url: 'wikipedia.org', symbol: 'W' },
+  { name: 'Apple', url: 'apple.com', symbol: '●' },
+  { name: 'NASA', url: 'nasa.gov', symbol: 'N' },
+  { name: 'Amazon', url: 'amazon.com', symbol: 'a' },
 ];
 
-const categories = [
-  'All',
-  'Technology',
-  'Entertainment',
-  'Education',
-  'Shopping',
-  'Science',
-];
+function normalizeDomain(value: string): string {
+  const input = value.trim();
 
-function normalizeWebsiteUrl(input: string): string {
-  let value = input.trim();
-
-  if (!value) {
-    throw new Error('Enter a website URL or domain to begin.');
-  }
-
-  if (!/^https?:\/\//i.test(value)) {
-    value = `https://${value}`;
+  if (!input) {
+    throw new Error('Enter a website address to get started.');
   }
 
   let parsed: URL;
 
   try {
-    parsed = new URL(value);
+    parsed = new URL(
+      /^https?:\/\//i.test(input) ? input : `https://${input}`
+    );
   } catch {
-    throw new Error('Enter a valid website, such as google.com.');
+    throw new Error('Enter a valid address, such as google.com.');
   }
 
-  if (!parsed.hostname.includes('.')) {
-    throw new Error('Enter a complete domain, such as example.com.');
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Use a valid HTTP or HTTPS website.');
   }
 
-  return parsed.hostname.replace(/^www\./i, '');
+  const hostname = parsed.hostname.toLowerCase();
+
+  if (
+    !hostname.includes('.') ||
+    !/^[a-z0-9.-]+$/.test(hostname) ||
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local')
+  ) {
+    throw new Error('Enter a public website, such as wikipedia.org.');
+  }
+
+  return hostname;
 }
 
-function formatTimestamp(timestamp: string): string {
-  if (!/^\d{14}$/.test(timestamp)) {
-    return timestamp;
-  }
+function getYear(timestamp: string): string {
+  return timestamp.slice(0, 4);
+}
 
+function formatDate(timestamp: string): string {
   const date = new Date(
     `${timestamp.slice(0, 4)}-${timestamp.slice(4, 6)}-${timestamp.slice(6, 8)}T${timestamp.slice(8, 10)}:${timestamp.slice(10, 12)}:${timestamp.slice(12, 14)}Z`
   );
@@ -126,91 +83,65 @@ function formatTimestamp(timestamp: string): string {
   });
 }
 
-function getYear(timestamp: string): string {
-  return timestamp.slice(0, 4);
-}
-
 function getArchivedUrl(snapshot: Snapshot): string {
   return `https://web.archive.org/web/${snapshot.timestamp}/${snapshot.original}`;
 }
 
-function App() {
-  const [input, setInput] = useState('');
+export default function App() {
+  const [website, setWebsite] = useState('');
   const [searchedDomain, setSearchedDomain] = useState('');
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
-  const [selectedSnapshot, setSelectedSnapshot] =
-    useState<Snapshot | null>(null);
-  const [activeCategory, setActiveCategory] = useState('All');
+  const [selected, setSelected] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [successMessage, setSuccessMessage] = useState('');
+  const [success, setSuccess] = useState('');
 
-  const filteredWebsites =
-    activeCategory === 'All'
-      ? websites
-      : websites.filter(
-          (website) => website.category === activeCategory
-        );
-
-  async function searchWebsite(value: string = input) {
+  async function searchWebsite(value = website) {
     setError('');
-    setSuccessMessage('');
+    setSuccess('');
     setSnapshots([]);
-    setSelectedSnapshot(null);
+    setSelected(null);
 
     let domain: string;
 
     try {
-      domain = normalizeWebsiteUrl(value);
+      domain = normalizeDomain(value);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Please enter a valid website URL.'
+        err instanceof Error ? err.message : 'Invalid website address.'
       );
       return;
     }
 
-    setInput(value);
-    setSearchedDomain(domain);
+    setWebsite(value);
     setLoading(true);
+    setSearchedDomain(domain);
 
     try {
-      const query = new URLSearchParams({
-        url: `${domain}/*`,
-        output: 'json',
-        fl: 'timestamp,original,statuscode',
-        filter: 'statuscode:200',
-        collapse: 'timestamp:4',
-        from: '1990',
-        to: '2026',
-        limit: '100',
-      });
-
-      // The Wayback CDX endpoint does not reliably permit
-      // direct browser requests because of CORS restrictions.
-      const endpoint =
-        'https://proxy.cors.dev/https://web.archive.org/cdx/search/cdx?' +
-        query.toString();
-
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-        },
-      });
+      const response = await fetch(
+        `/api/snapshots?url=${encodeURIComponent(domain)}`
+      );
 
       if (!response.ok) {
-        throw new Error(
-          `Archive request failed (HTTP ${response.status}). Please try again.`
-        );
+        let message = `Request failed (HTTP ${response.status}).`;
+
+        try {
+          const body: { error?: string } = await response.json();
+          if (typeof body.error === 'string') {
+            message = body.error;
+          }
+        } catch {
+          // Use the fallback message if the response isn't JSON.
+        }
+
+        throw new Error(message);
       }
 
       const data: unknown = await response.json();
 
       if (!Array.isArray(data) || data.length < 2) {
         throw new Error(
-          'No archived snapshots were found for this website. Try another domain.'
+          'No historical snapshots were found for this website.'
         );
       }
 
@@ -235,73 +166,52 @@ function App() {
 
       if (results.length === 0) {
         throw new Error(
-          'The archive did not return usable snapshots. Try another website.'
+          'The Archive returned no usable historical snapshots.'
         );
       }
 
       setSnapshots(results);
-      setSelectedSnapshot(results[results.length - 1]);
-      setSuccessMessage(
+      setSelected(results[results.length - 1]);
+      setSuccess(
         `Found ${results.length} archived snapshots for ${domain}.`
       );
     } catch (err) {
-      console.error('Digital Time Machine search error:', err);
-
       setError(
         err instanceof Error
-          ? `${err.message} The public archive proxy may be unavailable or rate-limited.`
-          : 'Unable to retrieve historical snapshots. Please try again.'
+          ? err.message
+          : 'Something went wrong. Please try again.'
       );
     } finally {
       setLoading(false);
     }
   }
 
-  function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void searchWebsite(input);
-  }
+  const firstYear = snapshots.length
+    ? getYear(snapshots[0].timestamp)
+    : '—';
 
-  function resetSearch() {
-    setInput('');
-    setSearchedDomain('');
-    setSnapshots([]);
-    setSelectedSnapshot(null);
-    setError('');
-    setSuccessMessage('');
-  }
+  const lastYear = snapshots.length
+    ? getYear(snapshots[snapshots.length - 1].timestamp)
+    : '—';
 
-  const firstYear =
-    snapshots.length > 0 ? getYear(snapshots[0].timestamp) : '';
-
-  const lastYear =
-    snapshots.length > 0
-      ? getYear(snapshots[snapshots.length - 1].timestamp)
-      : '';
-
-  const uniqueYears = Array.from(
+  const years = Array.from(
     new Set(snapshots.map((snapshot) => getYear(snapshot.timestamp)))
   );
 
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a
-          className="brand"
-          href="#home"
-          onClick={resetSearch}
-          aria-label="Digital Time Machine home"
-        >
+    <main>
+      <nav className="navbar">
+        <a className="brand" href="#top" aria-label="Digital Time Machine home">
           <span className="brand-icon">
-            <History size={23} />
+            <History size={22} />
           </span>
           <span>
-            <strong>Digital Time Machine</strong>
-            <small>Website Evolution Explorer</small>
+            Digital<span className="brand-accent">Time</span>
+            <small>MACHINE</small>
           </span>
         </a>
 
-        <nav className="topbar-links">
+        <div className="nav-links">
           <a href="#explore">Explore</a>
           <a href="#how-it-works">How it works</a>
           <a
@@ -310,372 +220,326 @@ function App() {
             target="_blank"
             rel="noreferrer"
           >
-            Internet Archive <ExternalLink size={14} />
+            Internet Archive <ExternalLink size={13} />
           </a>
-        </nav>
-      </header>
+        </div>
+      </nav>
 
-      <main id="home">
-        <section className="hero">
-          <div className="hero-badge">
+      <section className="hero" id="top">
+        <div className="hero-glow glow-one" />
+        <div className="hero-glow glow-two" />
+
+        <div className="hero-content">
+          <div className="eyebrow">
             <Sparkles size={14} />
             THE INTERNET, THROUGH TIME
           </div>
 
           <h1>
-            Every website has
+            Every website
             <br />
-            <span>a story to tell.</span>
+            has a <span>story to tell.</span>
           </h1>
 
           <p className="hero-description">
-            Travel through the history of the web. Discover how your
-            favorite websites looked years ago, one snapshot at a time.
+            Travel through the history of the web. Discover how websites
+            looked years ago and explore their digital evolution.
           </p>
 
-          <form className="search-form" onSubmit={handleSearchSubmit}>
-            <Globe className="search-globe" size={21} />
-
+          <form
+            className="search-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void searchWebsite();
+            }}
+          >
+            <Globe2 className="search-globe" size={20} />
             <input
-              type="text"
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              placeholder="Enter a website URL, e.g. google.com"
-              aria-label="Website URL"
-              disabled={loading}
+              value={website}
+              onChange={(event) => setWebsite(event.target.value)}
+              placeholder="Enter a website, e.g. google.com"
+              aria-label="Website address"
+              autoComplete="url"
             />
-
-            {input && !loading && (
-              <button
-                type="button"
-                className="clear-button"
-                onClick={() => setInput('')}
-                aria-label="Clear website URL"
-              >
-                ×
-              </button>
-            )}
-
-            <button
-              type="submit"
-              className="search-button"
-              disabled={loading}
-            >
+            <button type="submit" disabled={loading}>
               {loading ? (
-                <>
-                  <LoaderCircle className="spin" size={17} />
-                  Searching
-                </>
+                <LoaderCircle className="spin" size={18} />
               ) : (
-                <>
-                  <Search size={17} />
-                  Explore history
-                </>
+                <Search size={18} />
               )}
+              <span>{loading ? 'Exploring...' : 'Explore history'}</span>
             </button>
           </form>
 
-          <div className="search-hint">
-            <ShieldCheck size={15} />
-            Powered by historical captures from the Internet Archive
+          <div className="search-note">
+            <ShieldCheck size={14} />
+            Powered by the Internet Archive's public snapshot index
           </div>
 
           {error && (
-            <div className="message message-error" role="alert">
-              <span className="message-icon">!</span>
-              <span>{error}</span>
+            <div className="message error-message" role="alert">
+              {error}
             </div>
           )}
 
-          {successMessage && !error && (
-            <div className="message message-success" role="status">
-              <ShieldCheck size={18} />
-              <span>{successMessage}</span>
+          {success && (
+            <div className="message success-message" role="status">
+              {success}
             </div>
           )}
-        </section>
 
-        {loading && (
-          <section className="loading-panel" aria-live="polite">
-            <LoaderCircle size={30} className="spin" />
-            <h2>Travelling back in time...</h2>
-            <p>Searching historical website captures. This may take a moment.</p>
-          </section>
-        )}
-
-        {snapshots.length > 0 && !loading && (
-          <section className="results-section">
-            <div className="section-heading">
-              <div>
-                <span className="eyebrow">YOUR JOURNEY THROUGH TIME</span>
-                <h2>Website history</h2>
-                <p className="section-subtitle">
-                  Historical captures of <strong>{searchedDomain}</strong>
-                </p>
-              </div>
-
-              <button className="secondary-button" onClick={resetSearch}>
-                <RotateCcw size={15} />
-                New search
-              </button>
-            </div>
-
-            <div className="stats-grid">
-              <div className="stat-card">
-                <span className="stat-icon">
-                  <History size={20} />
-                </span>
-                <div>
-                  <span className="stat-label">SNAPSHOTS FOUND</span>
-                  <strong>{snapshots.length}</strong>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <span className="stat-icon">
-                  <CalendarDays size={20} />
-                </span>
-                <div>
-                  <span className="stat-label">FIRST CAPTURE</span>
-                  <strong>{firstYear || '—'}</strong>
-                </div>
-              </div>
-
-              <div className="stat-card">
-                <span className="stat-icon">
-                  <Clock3 size={20} />
-                </span>
-                <div>
-                  <span className="stat-label">LATEST CAPTURE</span>
-                  <strong>{lastYear || '—'}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div className="history-layout">
-              <div className="timeline-panel">
-                <div className="panel-heading">
-                  <div>
-                    <h3>Timeline</h3>
-                    <p>Select a snapshot to travel to that date.</p>
-                  </div>
-                  <span className="count-pill">
-                    {uniqueYears.length} years
-                  </span>
-                </div>
-
-                <div className="timeline">
-                  {uniqueYears.map((year) => {
-                    const yearSnapshots = snapshots.filter(
-                      (snapshot) => getYear(snapshot.timestamp) === year
-                    );
-
-                    return (
-                      <div className="timeline-year" key={year}>
-                        <div className="year-marker">
-                          <span className="timeline-dot" />
-                          <strong>{year}</strong>
-                          <span className="year-count">
-                            {yearSnapshots.length}
-                          </span>
-                        </div>
-
-                        <div className="snapshot-list">
-                          {yearSnapshots.map((snapshot) => {
-                            const selected =
-                              selectedSnapshot?.timestamp ===
-                                snapshot.timestamp &&
-                              selectedSnapshot?.original ===
-                                snapshot.original;
-
-                            return (
-                              <button
-                                className={`snapshot-item ${
-                                  selected ? 'snapshot-selected' : ''
-                                }`}
-                                key={`${snapshot.timestamp}-${snapshot.original}`}
-                                onClick={() =>
-                                  setSelectedSnapshot(snapshot)
-                                }
-                              >
-                                <span className="snapshot-date">
-                                  {formatTimestamp(snapshot.timestamp)}
-                                </span>
-                                <span className="snapshot-status">
-                                  {snapshot.statuscode}
-                                </span>
-                                <ArrowUpRight size={16} />
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <aside className="preview-panel">
-                <div className="preview-top">
-                  <span className="preview-label">
-                    <span className="live-dot" />
-                    SELECTED SNAPSHOT
-                  </span>
-                  <span className="preview-icon">
-                    <Globe size={22} />
-                  </span>
-                </div>
-
-                {selectedSnapshot ? (
-                  <>
-                    <div className="preview-date">
-                      {formatTimestamp(selectedSnapshot.timestamp)}
-                    </div>
-
-                    <h3>{searchedDomain}</h3>
-
-                    <p className="preview-description">
-                      View the archived version of this website as it
-                      appeared on the selected date.
-                    </p>
-
-                    <div className="preview-details">
-                      <div>
-                        <span>Capture date</span>
-                        <strong>
-                          {formatTimestamp(selectedSnapshot.timestamp)}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>Archive status</span>
-                        <strong>
-                          HTTP {selectedSnapshot.statuscode}
-                        </strong>
-                      </div>
-                    </div>
-
-                    <a
-                      className="open-snapshot-button"
-                      href={getArchivedUrl(selectedSnapshot)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <History size={17} />
-                      Open this moment
-                      <ArrowUpRight size={17} />
-                    </a>
-
-                    <p className="preview-note">
-                      Opens the archived website in a new tab.
-                    </p>
-                  </>
-                ) : (
-                  <div className="empty-preview">
-                    <History size={34} />
-                    <p>Select a date on the timeline.</p>
-                  </div>
-                )}
-              </aside>
-            </div>
-          </section>
-        )}
-
-        <section id="explore" className="discover-section">
-          <div className="section-heading">
-            <div>
-              <span className="eyebrow">A TRIP DOWN MEMORY LANE</span>
-              <h2>Start with an icon</h2>
-              <p className="section-subtitle">
-                Explore the websites that shaped the digital world.
-              </p>
-            </div>
-          </div>
-
-          <div className="category-list" aria-label="Filter websites">
-            {categories.map((category) => (
-              <button
-                key={category}
-                className={`category-button ${
-                  activeCategory === category ? 'category-active' : ''
-                }`}
-                onClick={() => setActiveCategory(category)}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-
-          <div className="website-grid">
-            {filteredWebsites.map((website) => (
-              <article className="website-card" key={website.name}>
-                <div className="website-card-top">
-                  <span className="website-initial">
-                    {website.name.charAt(0)}
-                  </span>
-                  <span className="website-year">
-                    Since {website.year}
-                  </span>
-                </div>
-
-                <span className="website-category">
-                  {website.category}
-                </span>
-
-                <h3>{website.name}</h3>
-                <p>{website.description}</p>
-
+          <div className="popular">
+            <span>TRY A WEBSITE</span>
+            <div className="popular-list">
+              {popularSites.map((site) => (
                 <button
-                  className="website-explore-button"
+                  key={site.name}
+                  className="popular-chip"
+                  type="button"
                   onClick={() => {
-                    setActiveCategory('All');
-                    setInput(website.url);
-                    void searchWebsite(website.url);
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    setWebsite(site.url);
+                    void searchWebsite(site.url);
                   }}
                   disabled={loading}
                 >
-                  Explore history
-                  <ArrowUpRight size={16} />
+                  <span className="chip-symbol">{site.symbol}</span>
+                  {site.name}
                 </button>
-              </article>
-            ))}
+              ))}
+            </div>
           </div>
-        </section>
+        </div>
 
-        <section id="how-it-works" className="how-section">
-          <span className="eyebrow">BEHIND THE TIME MACHINE</span>
-          <h2>The past is still out there.</h2>
-          <p>
-            The Internet Archive's Wayback Machine preserves snapshots of
-            websites over time. Search a domain, choose an archived date,
-            and open the preserved page to see how the web has evolved.
-          </p>
+        <a className="scroll-hint" href="#explore">
+          <span>SCROLL TO EXPLORE</span>
+          <ArrowDown size={15} />
+        </a>
+      </section>
 
-          <a
-            href="https://web.archive.org/"
-            target="_blank"
-            rel="noreferrer"
-            className="learn-link"
-          >
-            Learn about the Wayback Machine
-            <ExternalLink size={15} />
-          </a>
-        </section>
-      </main>
+      <section className="explore-section" id="explore">
+        <div className="section-heading">
+          <div>
+            <div className="eyebrow muted-eyebrow">
+              <Clock3 size={14} />
+              HISTORY EXPLORER
+            </div>
+            <h2>
+              The web, <span>rewound.</span>
+            </h2>
+            <p>
+              {snapshots.length
+                ? `Historical records for ${searchedDomain}`
+                : 'Search for a website to reveal its archived history.'}
+            </p>
+          </div>
+
+          {snapshots.length > 0 && (
+            <div className="result-pill">
+              <span className="status-dot" />
+              {snapshots.length} snapshots
+            </div>
+          )}
+        </div>
+
+        <div className="stats-grid">
+          <article className="stat-card">
+            <span className="stat-icon">
+              <History size={19} />
+            </span>
+            <span className="stat-label">SNAPSHOTS FOUND</span>
+            <strong>{snapshots.length || '—'}</strong>
+            <span className="stat-foot">Archived records</span>
+          </article>
+
+          <article className="stat-card">
+            <span className="stat-icon">
+              <Calendar size={19} />
+            </span>
+            <span className="stat-label">FIRST YEAR</span>
+            <strong>{firstYear}</strong>
+            <span className="stat-foot">Earliest result returned</span>
+          </article>
+
+          <article className="stat-card">
+            <span className="stat-icon">
+              <Sparkles size={19} />
+            </span>
+            <span className="stat-label">LATEST YEAR</span>
+            <strong>{lastYear}</strong>
+            <span className="stat-foot">Latest result returned</span>
+          </article>
+        </div>
+
+        <div className="timeline-panel">
+          <div className="panel-heading">
+            <div>
+              <h3>Timeline of the web</h3>
+              <p>Select a year to explore a saved version.</p>
+            </div>
+            <span className="timeline-tag">CHRONOLOGY</span>
+          </div>
+
+          {snapshots.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-icon">
+                <History size={28} />
+              </div>
+              <h3>Your journey starts here</h3>
+              <p>
+                Enter a website above to discover when its pages were
+                archived and open a historical version.
+              </p>
+              <button
+                className="text-button"
+                onClick={() => {
+                  document.querySelector('#top')?.scrollIntoView({
+                    behavior: 'smooth',
+                  });
+                }}
+                type="button"
+              >
+                Search a website <ArrowRight size={15} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="year-strip">
+                {years.map((year) => (
+                  <button
+                    type="button"
+                    key={year}
+                    className={
+                      selected && getYear(selected.timestamp) === year
+                        ? 'year-chip selected-year'
+                        : 'year-chip'
+                    }
+                    onClick={() => {
+                      const match = snapshots.find(
+                        (snapshot) => getYear(snapshot.timestamp) === year
+                      );
+                      if (match) setSelected(match);
+                    }}
+                  >
+                    {year}
+                  </button>
+                ))}
+              </div>
+
+              <div className="timeline-list">
+                {snapshots.map((snapshot, index) => (
+                  <button
+                    className={
+                      selected?.timestamp === snapshot.timestamp &&
+                      selected?.original === snapshot.original
+                        ? 'timeline-item active-timeline-item'
+                        : 'timeline-item'
+                    }
+                    key={`${snapshot.timestamp}-${snapshot.original}-${index}`}
+                    type="button"
+                    onClick={() => setSelected(snapshot)}
+                  >
+                    <span className="timeline-marker" />
+                    <span className="timeline-date">
+                      {formatDate(snapshot.timestamp)}
+                    </span>
+                    <span className="timeline-url">
+                      {snapshot.original}
+                    </span>
+                    <ArrowRight className="timeline-arrow" size={16} />
+                  </button>
+                ))}
+              </div>
+
+              {selected && (
+                <div className="selected-preview">
+                  <div className="preview-copy">
+                    <span className="preview-label">SELECTED SNAPSHOT</span>
+                    <h3>{formatDate(selected.timestamp)}</h3>
+                    <p>
+                      {selected.original}
+                    </p>
+                  </div>
+
+                  <a
+                    className="open-snapshot"
+                    href={getArchivedUrl(selected)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open archived page <ExternalLink size={16} />
+                  </a>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="how-section" id="how-it-works">
+        <div className="eyebrow muted-eyebrow">
+          <Sparkles size={14} />
+          BEHIND THE JOURNEY
+        </div>
+        <h2>
+          History at your <span>fingertips.</span>
+        </h2>
+        <p className="how-intro">
+          Explore preserved web pages through the public Internet Archive
+          index. Not every page or year will have a saved copy.
+        </p>
+
+        <div className="how-grid">
+          <article className="how-card">
+            <span>01</span>
+            <Globe2 size={23} />
+            <h3>Choose a website</h3>
+            <p>Enter a public domain to look for its historical records.</p>
+          </article>
+
+          <article className="how-card">
+            <span>02</span>
+            <History size={23} />
+            <h3>Find its history</h3>
+            <p>Browse the snapshot dates returned by the Archive.</p>
+          </article>
+
+          <article className="how-card">
+            <span>03</span>
+            <ExternalLink size={23} />
+            <h3>Travel back in time</h3>
+            <p>Open an archived page on the Internet Archive website.</p>
+          </article>
+        </div>
+      </section>
 
       <footer className="footer">
-        <a className="footer-brand" href="#home">
-          <History size={18} />
-          Digital Time Machine
+        <a className="brand footer-brand" href="#top">
+          <span className="brand-icon">
+            <History size={20} />
+          </span>
+          <span>
+            Digital<span className="brand-accent">Time</span>
+            <small>MACHINE</small>
+          </span>
         </a>
+
         <p>
-          An independent website exploration project. Historical captures
-          are provided by the Internet Archive.
+          An independent web-history explorer. Historical records are
+          provided by the Internet Archive.
         </p>
-        <span>© {new Date().getFullYear()} Digital Time Machine</span>
+
+        <a
+          href="https://web.archive.org/"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Visit the Internet Archive <ExternalLink size={13} />
+        </a>
+
+        <span className="copyright">
+          © {new Date().getFullYear()} Digital Time Machine
+        </span>
       </footer>
-    </div>
+    </main>
   );
 }
-
-export default App;
