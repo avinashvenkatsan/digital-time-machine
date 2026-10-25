@@ -1,7 +1,9 @@
+
 export interface Snapshot {
   timestamp: string
   original: string
   status: string
+  statuscode?: string
   digest?: string
   length?: string
 }
