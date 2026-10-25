@@ -1,3 +1,4 @@
+"start": "node server.cjs"
 {
   "name": "digital-time-machine",
   "private": true,
